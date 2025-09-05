@@ -1,1 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Auto Upload from Storage</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
+    .log { background: #000; padding: 10px; border-radius: 5px; height: 400px; overflow-y: auto; }
+    .progress { width: 100%; background: #333; margin: 5px 0; border-radius: 4px; }
+    .bar { width: 0%; height: 16px; background: limegreen; text-align: center; color: black; font-size: 12px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>📤 Auto Upload from /storage → R2</h2>
+  <button onclick="startUpload()">🚀 Start Upload</button>
+  <div class="log" id="log"></div>
 
+  <script>
+    function log(msg) {
+      const logBox = document.getElementById("log");
+      logBox.innerHTML += msg + "<br>";
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      let kb = bytes / 1024;
+      if (kb < 1024) return kb.toFixed(2) + " KB";
+      let mb = kb / 1024;
+      if (mb < 1024) return mb.toFixed(2) + " MB";
+      let gb = mb / 1024;
+      return gb.toFixed(2) + " GB";
+    }
+
+    async function getFileList() {
+      const res = await fetch("file_list.php");
+      return await res.json();
+    }
+
+    async function checkR2Connection() {
+      try {
+        const res = await fetch("signed_url.php?file=test.txt");
+        if (res.ok) {
+          log("✅ R2 connection successful.");
+          return true;
+        } else {
+          log("❌ R2 connection failed.");
+          return false;
+        }
+      } catch (e) {
+        log("❌ R2 connection error: " + e.message);
+        return false;
+      }
+    }
+
+    async function uploadFile(fileName, index, total) {
+      const res = await fetch("signed_url.php?file=" + encodeURIComponent(fileName));
+      const data = await res.json();
+      const url = data.url;
+
+      const fileRes = await fetch("storage/" + fileName);
+      const blob = await fileRes.blob();
+      const fileSize = blob.size;
+
+      log(`📦 [${index+1}/${total}] ${fileName} (${formatBytes(fileSize)})`);
+
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", url, true);
+
+        let startTime = Date.now();
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            let percent = Math.round((e.loaded / e.total) * 100);
+            let elapsed = (Date.now() - startTime) / 1000;
+            let speed = e.loaded / elapsed; // bytes/sec
+            log(`   ↳ ${percent}% | ${formatBytes(e.loaded)}/${formatBytes(e.total)} | ${formatBytes(speed)}/s`);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            log(`   ✅ Upload complete (${index+1}/${total})`);
+            resolve();
+          } else {
+            log(`   ❌ Error ${xhr.status}`);
+            reject();
+          }
+        };
+
+        xhr.onerror = () => {
+          log("   ❌ Network error");
+          reject();
+        };
+
+        xhr.send(blob);
+      });
+    }
+
+    async function startUpload() {
+      log("🔍 Scanning /storage...");
+      const files = await getFileList();
+      let totalSize = 0;
+
+      // get total size
+      for (let f of files) {
+        const res = await fetch("storage/" + f);
+        const blob = await res.blob();
+        totalSize += blob.size;
+      }
+      log(`Found ${files.length} files | Total size: ${formatBytes(totalSize)}`);
+
+      // check R2
+      const ok = await checkR2Connection();
+      if (!ok) {
+        log("❌ Stopping: R2 not reachable.");
+        return;
+      }
+
+      log("🚀 Starting upload...");
+      for (let i = 0; i < files.length; i++) {
+        await uploadFile(files[i], i, files.length);
+      }
+      log("🎉 All uploads complete!");
+    }
+  </script>
+</body>
+</html>
