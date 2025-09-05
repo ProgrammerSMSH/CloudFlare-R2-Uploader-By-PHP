@@ -73,7 +73,7 @@ Supports progress tracking, error handling, and one-click bulk upload.
 
 ## 📸 Screenshot (Placeholder)
 
-![Demo Screenshot](screenshot.png)
+![Demo Screenshot](demo.png)
 
 ---
 
